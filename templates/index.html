@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>AutoType 🧿</title>
+<style>
+:root{
+ --g:#6688cc;--gd:#3a4a7a;--gk:#1e2844;--bg:#06060e;--bgp:#0a0e1a;--bgi:#080912;
+ --bd:#1a2040;--r:#cc2233;--c:#5577bb;--o:#7799dd;--p:#8888cc;--mem:#5599dd;--ri:#cc2233;--accent:#4466aa;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--g);
+ font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:13px;line-height:1.45}
+a{color:var(--o);text-decoration:none}
+button{background:var(--bgp);color:var(--g);border:1px solid var(--bd);padding:4px 10px;
+ font:inherit;cursor:pointer;border-radius:3px}
+button:hover{background:var(--gk);border-color:var(--g)}
+button.primary{background:var(--accent);border-color:var(--g);color:#fff}
+button.danger{border-color:var(--r);color:var(--r)}
+button:disabled{opacity:.4;cursor:not-allowed}
+input,select,textarea{background:var(--bgi);color:var(--g);border:1px solid var(--bd);
+ font:inherit;padding:4px 6px;border-radius:3px;width:100%}
+textarea{resize:vertical;min-height:60px;white-space:pre-wrap}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--g)}
+hr{border:0;border-top:1px solid var(--bd);margin:10px 0}
+
+/* Layout */
+#app{display:flex;flex-direction:column;height:100vh;width:100vw}
+header{display:flex;align-items:center;gap:12px;padding:6px 12px;
+ border-bottom:1px solid var(--bd);background:var(--bgp)}
+#logo{color:var(--o);font-weight:700;letter-spacing:1px}
+#status{color:var(--p);font-size:11px}
+#tabs{display:flex;gap:2px;border-bottom:1px solid var(--bd);background:var(--bgp)}
+#tabs button{border-radius:0;border:0;border-right:1px solid var(--bd);
+ padding:8px 16px;background:transparent;color:var(--gd)}
+#tabs button.active{background:var(--bg);color:var(--o);border-bottom:2px solid var(--o)}
+#tabs button:hover{color:var(--g)}
+main{flex:1;overflow:hidden;position:relative}
+.tab{position:absolute;inset:0;display:none;overflow:auto;padding:12px}
+.tab.active{display:flex;flex-direction:column}
+
+/* Panels */
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+.col{display:flex;flex-direction:column;gap:8px}
+.panel{background:var(--bgp);border:1px solid var(--bd);border-radius:4px;padding:10px}
+.panel h3{margin:0 0 6px;font-size:12px;color:var(--o);letter-spacing:1px;text-transform:uppercase}
+.muted{color:var(--gd)}
+.small{font-size:11px}
+.pill{display:inline-block;padding:1px 6px;border:1px solid var(--bd);border-radius:10px;font-size:11px;color:var(--p)}
+
+/* Chat */
+#chat-log{flex:1;overflow:auto;padding:8px 6px}
+.msg{margin:6px 0;padding:8px 10px;border-radius:4px;border:1px solid var(--bd);
+ white-space:pre-wrap;word-wrap:break-word}
+.msg.user{background:var(--bgi);border-color:var(--gk)}
+.msg.assistant{background:var(--bgp);border-color:var(--bd)}
+.msg.system{background:transparent;border-color:var(--gk);color:var(--p);font-style:italic}
+.msg .role{font-size:10px;color:var(--gd);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+.think{margin-top:6px;padding:6px;background:var(--bgi);border-left:2px solid var(--p);
+ font-size:12px;color:var(--p)}
+.think summary{cursor:pointer;color:var(--o);font-size:11px}
+#chat-input-row{display:flex;gap:6px;padding:6px;border-top:1px solid var(--bd);background:var(--bgp)}
+#chat-input{flex:1;min-height:44px;max-height:200px}
+
+/* Tools tab */
+#tools-wrap{display:grid;grid-template-columns:260px 1fr 320px;gap:10px;height:100%}
+#tools-side,#tools-main,#tools-right{overflow:auto}
+.log-entry{border:1px solid var(--bd);border-radius:3px;padding:6px 8px;margin:4px 0;
+ background:var(--bgi)}
+.log-entry.kind-task{border-color:var(--o);background:var(--bgp)}
+.log-entry.kind-think{border-color:var(--p);color:var(--p)}
+.log-entry.kind-assistant{border-color:var(--gk)}
+.log-entry.kind-tool_call{border-color:var(--accent);color:var(--o)}
+.log-entry.kind-tool_result{border-color:var(--c)}
+.log-entry.kind-final{border-color:var(--mem);background:var(--gk)}
+.log-entry.kind-error{border-color:var(--r);color:var(--r)}
+.log-entry.kind-ask_chat{border-color:var(--p)}
+.log-entry.kind-chat_reply{border-color:var(--o)}
+.log-entry .k{display:inline-block;font-size:10px;padding:1px 6px;border-radius:8px;
+ border:1px solid var(--bd);margin-right:6px;color:var(--gd);text-transform:uppercase}
+.log-entry pre{margin:4px 0 0;white-space:pre-wrap;word-break:break-word;font-size:12px}
+.session-item{padding:6px 8px;border:1px solid var(--bd);border-radius:3px;margin:4px 0;
+ cursor:pointer;display:flex;justify-content:space-between;gap:6px}
+.session-item.active{border-color:var(--o);background:var(--bgi)}
+.server-item{border:1px solid var(--bd);border-radius:3px;padding:6px;margin:4px 0}
+.server-item .nm{color:var(--o);font-weight:700}
+.tool-item{border-left:2px solid var(--accent);padding:2px 6px;margin:2px 0;font-size:12px}
+.tool-item .n{color:var(--o)}
+
+/* Memory */
+#mem-list .mem-item{border:1px solid var(--bd);padding:6px 8px;margin:4px 0;border-radius:3px;background:var(--bgi)}
+.kv{display:grid;grid-template-columns:160px 1fr;gap:4px 10px;font-size:12px}
+.kv .k{color:var(--gd)}
+
+/* Utility */
+.right{margin-left:auto}
+.hidden{display:none!important}
+.scroll{overflow:auto}
+.grow{flex:1}
+.mono{font-family:inherit}
+.flex{display:flex}
+.gap6{gap:6px}.gap10{gap:10px}
+.pad6{padding:6px}.pad10{padding:10px}
+</style>
+</head>
+<body>
+<div id="app">
+ <header>
+  <span id="logo">AutoType 🧿</span>
+  <span id="status" class="muted">connecting…</span>
+  <span class="right"></span>
+  <select id="model-select" style="width:260px"><option>— pick model —</option></select>
+  <button id="btn-new-chat">New</button>
+  <button id="btn-settings">⚙</button>
+ </header>
+
+ <nav id="tabs">
+  <button data-tab="chat" class="active">Chat</button>
+  <button data-tab="memory">Memory</button>
+  <button data-tab="tools">Tools</button>
+  <button data-tab="settings">Settings</button>
+ </nav>
+
+ <main>
+  <!-- ── CHAT TAB ─────────────────────────────────────────── -->
+  <section id="tab-chat" class="tab active" style="padding:0">
+   <div id="chat-log"></div>
+   <div id="chat-input-row">
+    <textarea id="chat-input" placeholder="Message… (Shift+Enter for newline)"></textarea>
+    <div class="col" style="width:110px">
+     <button id="btn-send" class="primary">Send ▸</button>
+     <button id="btn-stop" class="danger hidden">Stop ■</button>
+     <button id="btn-unsend">Unsend</button>
+    </div>
+   </div>
+  </section>
+
+  <!-- ── MEMORY TAB ───────────────────────────────────────── -->
+  <section id="tab-memory" class="tab">
+   <div class="panel">
+    <h3>Long-Term Memory</h3>
+    <div class="row" id="mem-stats"></div>
+    <div class="row">
+     <label><input type="checkbox" id="mem-saving"/> Saving</label>
+     <label><input type="checkbox" id="mem-injection"/> Injection</label>
+     <label><input type="checkbox" id="mem-dumb"/> Dumb mode</label>
+     <button id="mem-reload">Reload</button>
+     <button id="mem-export">Export</button>
+     <button id="mem-reset" class="danger">Reset all</button>
+    </div>
+   </div>
+   <div class="panel grow">
+    <h3>Stored memories</h3>
+    <div id="mem-list"></div>
+   </div>
+  </section>
+
+  <!-- ── TOOLS TAB ───────────────────────────────────────── -->
+  <section id="tab-tools" class="tab">
+   <div id="tools-wrap">
+    <!-- Left: sessions + servers -->
+    <aside id="tools-side" class="col">
+     <div class="panel">
+      <h3>Tool sessions</h3>
+      <div class="row"><button id="btn-tool-new">+ New task</button></div>
+      <div id="tool-sessions"></div>
+     </div>
+     <div class="panel">
+      <h3>MCP servers</h3>
+      <div class="small muted">Stored in <code>data/mcp_servers.json</code> — same shape as LMStudio / Claude Desktop.</div>
+      <div id="mcp-servers"></div>
+      <div class="row"><button id="btn-edit-servers">Edit JSON</button>
+       <button id="btn-refresh-tools">Refresh tools</button></div>
+     </div>
+    </aside>
+
+    <!-- Middle: log + input -->
+    <section id="tools-main" class="col">
+     <div class="panel">
+      <h3>Task — Tools tab (isolated from main chat)</h3>
+      <div class="row">
+       <select id="tool-model" style="flex:1"></select>
+       <label class="small"><input type="checkbox" id="tool-think"/> Think</label>
+       <input id="tool-iters" type="number" min="1" max="32" style="width:70px" title="Max iterations"/>
+      </div>
+      <textarea id="tool-task" rows="3" placeholder="Describe a task for the tool model. It can invoke MCP tools and may ask the main chat model for persona-flavoured writing."></textarea>
+      <div class="row">
+       <button id="btn-tool-run" class="primary">Run task ▸</button>
+       <span class="muted small">Summary is posted as a system message into the main chat.</span>
+      </div>
+     </div>
+     <div class="panel grow">
+      <h3>Log</h3>
+      <div id="tool-log"></div>
+     </div>
+    </section>
+
+    <!-- Right: tool catalog + editor -->
+    <aside id="tools-right" class="col">
+     <div class="panel">
+      <h3>Available tools</h3>
+      <div id="mcp-tools" class="small"></div>
+     </div>
+     <div class="panel" id="servers-editor-panel" style="display:none">
+      <h3>Edit servers JSON</h3>
+      <textarea id="servers-editor" rows="18"></textarea>
+      <div class="row">
+       <button id="btn-save-servers" class="primary">Save</button>
+       <button id="btn-cancel-servers">Cancel</button>
+      </div>
+     </div>
+    </aside>
+   </div>
+  </section>
+
+  <!-- ── SETTINGS TAB ────────────────────────────────────── -->
+  <section id="tab-settings" class="tab">
+   <div class="panel">
+    <h3>Connection</h3>
+    <div class="kv">
+     <div class="k">Engine</div><div><select id="cfg-engine"><option value="ollama">ollama</option><option value="llamacpp">llama.cpp</option></select></div>
+     <div class="k">Ollama host</div><div><input id="cfg-ollama-host"/></div>
+     <div class="k">llama.cpp host</div><div><input id="cfg-llama-host"/></div>
+     <div class="k">Keep-alive</div><div><input id="cfg-keep-alive"/></div>
+     <div class="k">System prompt</div><div><textarea id="cfg-sys" rows="3"></textarea></div>
+    </div>
+    <div class="row"><button id="btn-cfg-save" class="primary">Save</button></div>
+   </div>
+   <div class="panel">
+    <h3>Customization</h3>
+    <div class="kv">
+     <div class="k">LLM name</div><div><input id="cust-name"/></div>
+     <div class="k">Theme</div><div><select id="cust-theme"></select></div>
+     <div class="k">CRT effect</div><div><label><input type="checkbox" id="cust-crt"/> enabled</label></div>
+    </div>
+    <div class="row"><button id="btn-cust-save" class="primary">Save</button></div>
+   </div>
+  </section>
+ </main>
+</div>
+
+<script>
+// ── Utilities ─────────────────────────────────────────────────────
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const j=async(u,o={})=>{const r=await fetch(u,o);if(!r.ok){let e;try{e=(await r.json()).error}catch{e=r.statusText}throw new Error(e||r.status)}return r.json()};
+const jpost=(u,b)=>j(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b||{})});
+
+function setTab(name){
+ $$('#tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
+ $$('.tab').forEach(t=>t.classList.toggle('active',t.id==='tab-'+name));
+ if(name==='memory') loadMemory();
+ if(name==='tools') {loadToolsAll();}
+ if(name==='settings') loadSettings();
+}
+$$('#tabs button').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
+
+// ── Chat tab ──────────────────────────────────────────────────────
+let _streaming=null;
+
+async function loadModels(){
+ const r=await j('/api/models');
+ const s=$('#model-select');s.innerHTML='';
+ for(const m of r.models){
+  const o=document.createElement('option');o.value=m.name;
+  o.textContent=m.name+(m.parameter_size?` · ${m.parameter_size}`:'');
+  if(m.name===r.current)o.selected=true;
+  s.appendChild(o);
+ }
+ s.onchange=async()=>{await jpost('/api/select_model',{model:s.value})};
+ return r.current;
+}
+async function loadHealth(){
+ try{const r=await j('/api/health');$('#status').textContent=`● ${r.engine} connected`;}
+ catch{$('#status').textContent='● disconnected';}
+}
+
+function renderMsg(m){
+ const d=document.createElement('div');d.className='msg '+(m.role||'user');
+ const body=document.createElement('div');
+ body.innerHTML=(m.role==='user'?'<div class="role">You</div>':m.role==='assistant'?'<div class="role">Assistant</div>':'<div class="role">System</div>')
+  +'<div class="content">'+esc(m.content||'')+'</div>';
+ if(m.thinking) body.innerHTML+=`<details class="think"><summary>think</summary>${esc(m.thinking)}</details>`;
+ d.appendChild(body); return d;
+}
+async function loadChat(){
+ const r=await j('/api/active');
+ const log=$('#chat-log');log.innerHTML='';
+ for(const m of (r.chat.messages||[])) log.appendChild(renderMsg(m));
+ log.scrollTop=log.scrollHeight;
+}
+async function sendChat(){
+ const ta=$('#chat-input');const text=ta.value.trim();if(!text)return;
+ ta.value='';
+ const log=$('#chat-log');
+ log.appendChild(renderMsg({role:'user',content:text}));
+ const asMsg=renderMsg({role:'assistant',content:''}); log.appendChild(asMsg);
+ const content=asMsg.querySelector('.content');
+ let thinkBox=null;
+ $('#btn-send').classList.add('hidden');$('#btn-stop').classList.remove('hidden');
+ const ctrl=new AbortController();_streaming=ctrl;
+ try{
+  const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({message:text}),signal:ctrl.signal});
+  const reader=r.body.getReader();const dec=new TextDecoder();let buf='';
+  while(true){
+   const {value,done}=await reader.read(); if(done)break;
+   buf+=dec.decode(value,{stream:true});
+   let i; while((i=buf.indexOf('\n\n'))>=0){
+    const ev=buf.slice(0,i).trim(); buf=buf.slice(i+2);
+    if(!ev.startsWith('data: ')) continue;
+    try{const d=JSON.parse(ev.slice(6));
+     if(d.token){content.textContent+=d.token; log.scrollTop=log.scrollHeight;}
+     if(d.thinking){
+      if(!thinkBox){thinkBox=document.createElement('details');thinkBox.className='think';
+       thinkBox.open=false;thinkBox.innerHTML='<summary>think…</summary><div class="t"></div>';
+       asMsg.querySelector('div').appendChild(thinkBox);}
+      thinkBox.querySelector('.t').textContent+=d.thinking;
+     }
+     if(d.error){content.textContent+='\n⚠ '+d.error}
+     if(d.done){break}
+    }catch(e){}
+   }
+  }
+ }catch(e){content.textContent+='\n⚠ '+e.message}
+ _streaming=null;
+ $('#btn-send').classList.remove('hidden');$('#btn-stop').classList.add('hidden');
+}
+$('#btn-send').onclick=sendChat;
+$('#btn-stop').onclick=()=>{if(_streaming){_streaming.abort();fetch('/api/active/append',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:$('#chat-log .msg:last-child .content')?.textContent||''})});}};
+$('#btn-unsend').onclick=async()=>{await jpost('/api/active/unsend',{});await loadChat();};
+$('#btn-new-chat').onclick=async()=>{await jpost('/api/active/new',{});await loadChat();};
+$('#chat-input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendChat();}});
+
+// ── Memory tab ────────────────────────────────────────────────────
+async function loadMemory(){
+ try{
+  const s=await j('/api/memory/stats');
+  $('#mem-stats').innerHTML=
+   `<span class="pill">count: ${s.count??0}</span>`+
+   `<span class="pill">last: ${s.last_action||'–'}</span>`+
+   `<span class="pill">interest: ${s.last_interest??'–'}</span>`;
+  $('#mem-saving').checked=!!s.config?.enable_saving;
+  $('#mem-injection').checked=!!s.config?.enable_injection;
+  $('#mem-dumb').checked=!!s.config?.dumb_mode;
+  const l=await j('/api/memory/list');
+  $('#mem-list').innerHTML=(l.memories||[]).map(m=>
+   `<div class="mem-item"><div class="muted small">#${m.id} · ${m.created||''}</div>
+    <div>${esc(m.text||'')}</div></div>`).join('')||'<div class="muted">no memories</div>';
+ }catch(e){$('#mem-stats').textContent='⚠ '+e.message}
+}
+$('#mem-saving').onchange=()=>jpost('/api/memory/config',{enable_saving:$('#mem-saving').checked});
+$('#mem-injection').onchange=()=>jpost('/api/memory/config',{enable_injection:$('#mem-injection').checked});
+$('#mem-dumb').onchange=()=>jpost('/api/memory/config',{dumb_mode:$('#mem-dumb').checked});
+$('#mem-reload').onclick=loadMemory;
+$('#mem-reset').onclick=async()=>{if(confirm('Reset ALL memories?')){await jpost('/api/memory/reset',{});loadMemory();}};
+$('#mem-export').onclick=async()=>{const r=await j('/api/memory/export');const w=window.open();w.document.write('<pre>'+esc(r.text)+'</pre>');};
+
+// ── Tools tab ─────────────────────────────────────────────────────
+let _toolStream=null;
+
+async function loadToolsAll(){
+ await Promise.all([loadToolSessions(),loadMcpServers(),loadMcpTools(),loadToolCfg(),loadToolModels(),loadActiveToolSession()]);
+}
+async function loadToolSessions(){
+ const r=await j('/api/tools/sessions');const box=$('#tool-sessions');box.innerHTML='';
+ for(const s of r.sessions){
+  const el=document.createElement('div');
+  el.className='session-item'+(s.id===r.active_id?' active':'');
+  el.innerHTML=`<span>${esc(s.title)} <span class="muted small">(${s.log_count})</span></span>
+   <span><button data-sw="${s.id}">open</button> <button data-del="${s.id}" class="danger">×</button></span>`;
+  box.appendChild(el);
+ }
+ box.onclick=async(e)=>{
+  const sw=e.target.dataset.sw, del=e.target.dataset.del;
+  if(sw){await jpost('/api/tools/active/switch',{id:sw});await loadToolSessions();await loadActiveToolSession();}
+  if(del){if(confirm('Delete session?')){await jpost('/api/tools/active/delete',{id:del});await loadToolSessions();await loadActiveToolSession();}}
+ };
+}
+$('#btn-tool-new').onclick=async()=>{await jpost('/api/tools/active/new',{});await loadToolSessions();await loadActiveToolSession();};
+
+async function loadActiveToolSession(){
+ const r=await j('/api/tools/active');const log=$('#tool-log');log.innerHTML='';
+ for(const e of (r.session.log||[])) log.appendChild(renderLog(e));
+ log.scrollTop=log.scrollHeight;
+}
+function renderLog(e){
+ const d=document.createElement('div');d.className='log-entry kind-'+(e.kind||'info');
+ let body='';
+ if(e.kind==='tool_call') body=`<pre>${esc(JSON.stringify(e.arguments,null,2))}</pre>`;
+ else if(e.kind==='tool_result') body=`<pre>${esc(JSON.stringify(e.result,null,2).slice(0,4000))}</pre>`;
+ else if(e.kind==='final') body=`<pre>${esc(e.text||'')}</pre><div class="muted small">summary: ${esc(e.summary||'')}</div>`;
+ else body=`<pre>${esc(e.text||e.name||'')}</pre>`;
+ d.innerHTML=`<span class="k">${esc(e.kind||'')}</span>${e.name?`<span class="pill">${esc(e.name)}</span>`:''}${body}`;
+ return d;
+}
+
+async function loadMcpServers(){
+ const r=await j('/api/mcp/servers');const box=$('#mcp-servers');box.innerHTML='';
+ const srv=r.mcpServers||{};
+ for(const [name,cfg] of Object.entries(srv)){
+  const el=document.createElement('div');el.className='server-item';
+  el.innerHTML=`<div class="nm">${esc(name)}</div>
+   <div class="small muted">${esc(cfg.command||'')} ${esc((cfg.args||[]).join(' '))}</div>
+   <label class="small"><input type="checkbox" data-en="${esc(name)}" ${cfg.enabled?'checked':''}/> enabled</label>`;
+  box.appendChild(el);
+ }
+ box.onchange=async(e)=>{
+  const n=e.target.dataset.en;
+  if(n){await jpost('/api/mcp/servers/enable',{name:n,enabled:e.target.checked});await loadMcpTools();}
+ };
+}
+async function loadMcpTools(){
+ try{
+  const r=await j('/api/mcp/tools');const box=$('#mcp-tools');box.innerHTML='';
+  for(const t of (r.tools||[])){
+   const d=document.createElement('div');d.className='tool-item';
+   d.innerHTML=`<span class="n">${esc(t.qualified_name)}</span>
+    <div class="muted">${esc((t.description||'').slice(0,120))}</div>`;
+   box.appendChild(d);
+  }
+  if(!(r.tools||[]).length) box.innerHTML='<div class="muted">no tools (enable a server)</div>';
+ }catch(e){$('#mcp-tools').innerHTML='<div class="muted">⚠ '+esc(e.message)+'</div>'}
+}
+$('#btn-refresh-tools').onclick=loadMcpTools;
+
+$('#btn-edit-servers').onclick=async()=>{
+ const r=await j('/api/mcp/servers');
+ $('#servers-editor').value=JSON.stringify({mcpServers:r.mcpServers||{}},null,2);
+ $('#servers-editor-panel').style.display='block';
+};
+$('#btn-cancel-servers').onclick=()=>$('#servers-editor-panel').style.display='none';
+$('#btn-save-servers').onclick=async()=>{
+ try{await jpost('/api/mcp/servers',{raw:$('#servers-editor').value});
+  $('#servers-editor-panel').style.display='none';await loadMcpServers();await loadMcpTools();}
+ catch(e){alert('Save failed: '+e.message)}
+};
+
+async function loadToolCfg(){
+ const c=await j('/api/tools/config');
+ $('#tool-think').checked=!!c.think_enabled;
+ $('#tool-iters').value=c.max_iters||8;
+}
+async function loadToolModels(){
+ const r=await j('/api/tools/models');const s=$('#tool-model');s.innerHTML='';
+ for(const m of r.models){
+  const o=document.createElement('option');o.value=m.name;o.textContent=m.name;
+  if(m.name===r.current)o.selected=true;s.appendChild(o);
+ }
+ if(!r.models.length){const o=document.createElement('option');o.value='';o.textContent='(no ollama models found)';s.appendChild(o);}
+ s.onchange=()=>jpost('/api/tools/config',{model:s.value});
+}
+$('#tool-think').onchange=()=>jpost('/api/tools/config',{think_enabled:$('#tool-think').checked});
+$('#tool-iters').onchange=()=>jpost('/api/tools/config',{max_iters:parseInt($('#tool-iters').value||'8')});
+
+$('#btn-tool-run').onclick=async()=>{
+ const task=$('#tool-task').value.trim();if(!task)return;
+ $('#tool-task').value='';
+ const log=$('#tool-log');
+ const ctrl=new AbortController();_toolStream=ctrl;
+ $('#btn-tool-run').disabled=true;
+ try{
+  const r=await fetch('/api/tools/run',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({task,origin:'user'}),signal:ctrl.signal});
+  const reader=r.body.getReader();const dec=new TextDecoder();let buf='';
+  while(true){
+   const {value,done}=await reader.read(); if(done)break;
+   buf+=dec.decode(value,{stream:true});
+   let i; while((i=buf.indexOf('\n\n'))>=0){
+    const ev=buf.slice(0,i).trim(); buf=buf.slice(i+2);
+    if(!ev.startsWith('data: ')) continue;
+    try{const d=JSON.parse(ev.slice(6));
+     if(d.kind==='done'){continue;}
+     if(d.kind==='start'){log.appendChild(renderLog({kind:'info',text:`session ${d.session_id} · ${d.tools} tools`}));continue;}
+     log.appendChild(renderLog(d));log.scrollTop=log.scrollHeight;
+    }catch(e){}
+   }
+  }
+ }catch(e){log.appendChild(renderLog({kind:'error',text:e.message}))}
+ _toolStream=null;$('#btn-tool-run').disabled=false;
+ await loadToolSessions();
+};
+
+// ── Settings tab ──────────────────────────────────────────────────
+async function loadSettings(){
+ const c=await j('/api/config');
+ $('#cfg-engine').value=c.engine||'ollama';
+ $('#cfg-ollama-host').value=c.ollama_host||'';
+ $('#cfg-llama-host').value=c.llamacpp_host||'';
+ $('#cfg-keep-alive').value=c.keep_alive||'';
+ $('#cfg-sys').value=c.system_prompt||'';
+ const cu=await j('/api/customization');
+ $('#cust-name').value=cu.llm_name||'';
+ const ts=$('#cust-theme');ts.innerHTML='';
+ for(const [k,v] of Object.entries(cu.themes||{})){
+  const o=document.createElement('option');o.value=k;o.textContent=v.label||k;
+  if(k===cu.theme)o.selected=true;ts.appendChild(o);
+ }
+ $('#cust-crt').checked=!!cu.crt_effect;
+ applyTheme(cu.themes[cu.theme]);
+}
+$('#btn-cfg-save').onclick=async()=>{
+ await jpost('/api/config',{engine:$('#cfg-engine').value,
+  ollama_host:$('#cfg-ollama-host').value,llamacpp_host:$('#cfg-llama-host').value,
+  keep_alive:$('#cfg-keep-alive').value,system_prompt:$('#cfg-sys').value});
+ await loadHealth();await loadModels();
+};
+$('#btn-cust-save').onclick=async()=>{
+ await jpost('/api/customization',{llm_name:$('#cust-name').value,
+  theme:$('#cust-theme').value,crt_effect:$('#cust-crt').checked});
+ await loadSettings();
+};
+$('#btn-settings').onclick=()=>setTab('settings');
+
+function applyTheme(t){
+ if(!t)return;
+ const root=document.documentElement.style;
+ for(const [k,v] of Object.entries(t)){if(k.startsWith('--'))root.setProperty(k,v);}
+}
+
+// ── Boot ─────────────────────────────────────────────────────────
+(async()=>{
+ await loadHealth();
+ try{await loadModels();}catch(e){}
+ try{await loadChat();}catch(e){}
+ try{await loadSettings();}catch(e){}
+ setInterval(loadHealth,10000);
+})();
+</script>
+</body>
+</html>
