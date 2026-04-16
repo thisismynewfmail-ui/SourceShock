@@ -1,0 +1,11 @@
+{
+  "llm_name": "Arrietty",
+  "heading_mode": "text",
+  "heading_image": "images/heading.png",
+  "theme": "gits",
+  "nav_visible": true,
+  "crt_effect": true,
+  "sound_enabled": true,
+  "pc_speaker": true,
+  "engine": "ollama"
+}

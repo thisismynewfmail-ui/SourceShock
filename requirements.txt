@@ -1,0 +1,7 @@
+flask>=2.0
+requests>=2.25
+sentence-transformers>=2.2
+numpy>=1.21
+# Speech (optional — install only if using voice features)
+faster-whisper>=1.0
+pyttsx3>=2.90
