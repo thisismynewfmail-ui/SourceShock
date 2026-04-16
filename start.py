@@ -2,6 +2,7 @@
 """AutoType v1.02 🧿 — python start.py"""
 import json,re,threading,webbrowser,time,sys,os,uuid,glob,socket
 from datetime import datetime
+import mcp_tools as MCP
 
 try:
     from flask import Flask,render_template,request,jsonify,Response,stream_with_context,send_from_directory
@@ -667,6 +668,17 @@ def api_chat():
     sp=process_sys(CFG["system_prompt"])
     if sp: sys_parts.append({"role":"system","content":sp})
 
+    # Tools-tab summaries: consume any pending tool-model results and inject
+    # them as a system message so the chat model can use them without ever
+    # seeing raw tool I/O tokens.
+    try:
+        pending=MCP.pop_pending_summaries()
+        if pending:
+            lines=["[Tools tab results]"]
+            for p in pending: lines.append(f"- {p.get('summary','').strip()}")
+            sys_parts.append({"role":"system","content":"\n".join(lines)})
+    except Exception as _e: pass
+
     # Memory injection — query uses ONLY the most recent pair:
     # the previous assistant response + the current user message just sent
     mem_inj=None;retrieved=[]
@@ -868,10 +880,196 @@ def api_health():
             return jsonify({"ollama":"connected","engine":"ollama"})
     except: return jsonify({"ollama":"disconnected","engine":eng}),503
 
+# ══════════════════════════════════════════════════════════════════
+# TOOLS TAB — MCP server management + tool-model orchestration.
+# Kept fully isolated from the standard chat: the chat model never sees
+# tool I/O, only short summaries injected as system messages.
+# ══════════════════════════════════════════════════════════════════
+def _chat_model_writing(prompt):
+    """Delegate persona-flavoured writing to the main chat model.
+    Used by the tool model (via an ask_chat block) for posts/emails/etc."""
+    if not CFG.get("model"): return "(no main chat model selected)"
+    sp=process_sys(CFG.get("system_prompt") or "")
+    msgs=[]
+    if sp: msgs.append({"role":"system","content":sp})
+    msgs.append({"role":"system","content":
+        "You are being asked by the Tools subsystem to produce a short piece "
+        "of writing in your own voice. Reply with ONLY the writing itself — "
+        "no preamble, no explanation."})
+    msgs.append({"role":"user","content":prompt})
+    eng=CFG.get("engine","ollama")
+    try:
+        if eng=="llamacpp":
+            r=R.post(f"{CFG['llamacpp_host']}/v1/chat/completions",
+                     json={"model":CFG["model"],"messages":msgs,"stream":False,
+                           "temperature":float(eff("temperature"))},
+                     headers={"Authorization":"Bearer no-key"},timeout=120)
+            if r.status_code!=200: return f"(chat model HTTP {r.status_code})"
+            j=r.json();return strip_think((j.get("choices",[{}])[0].get("message",{}) or {}).get("content","")).strip()
+        else:
+            r=R.post(f"{CFG['ollama_host']}/api/chat",
+                     json={"model":CFG["model"],"messages":msgs,"stream":False,
+                           "options":{"temperature":float(eff("temperature"))}},
+                     timeout=120)
+            if r.status_code!=200: return f"(chat model HTTP {r.status_code})"
+            j=r.json();return strip_think((j.get("message",{}) or {}).get("content","")).strip()
+    except Exception as e: return f"(chat model error: {e})"
+
+@app.route("/api/mcp/servers",methods=["GET","POST"])
+def api_mcp_servers():
+    if request.method=="GET":
+        return jsonify({**MCP.load_servers(),"version":MCP.version()})
+    data=request.json or {}
+    # Accept either the full object ({"mcpServers":{...}}) or raw text.
+    if "raw" in data:
+        try: parsed=json.loads(data["raw"])
+        except Exception as e: return jsonify({"error":f"Invalid JSON: {e}"}),400
+    else: parsed=data
+    if "mcpServers" not in parsed: return jsonify({"error":"Missing 'mcpServers' key"}),400
+    MCP.save_servers(parsed);return jsonify({"status":"ok","version":MCP.version()})
+
+@app.route("/api/mcp/servers/enable",methods=["POST"])
+def api_mcp_enable():
+    d=request.json or {};name=d.get("name","");on=bool(d.get("enabled",False))
+    s=MCP.load_servers()
+    if name not in s.get("mcpServers",{}): return jsonify({"error":"Unknown server"}),404
+    s["mcpServers"][name]["enabled"]=on;MCP.save_servers(s)
+    if not on:
+        try:
+            c=MCP._clients.get(name)
+            if c: c.stop();MCP._clients.pop(name,None)
+        except Exception: pass
+    return jsonify({"status":"ok"})
+
+@app.route("/api/mcp/tools",methods=["GET"])
+def api_mcp_tools():
+    try: return jsonify({"tools":MCP.list_all_tools()})
+    except Exception as e: return jsonify({"tools":[],"error":str(e)}),500
+
+@app.route("/api/mcp/call",methods=["POST"])
+def api_mcp_call():
+    d=request.json or {};name=d.get("name","");args=d.get("arguments") or {}
+    res=MCP.call_qualified(name,args)
+    return jsonify({"result":res})
+
+@app.route("/api/tools/config",methods=["GET","POST"])
+def api_tools_config():
+    if request.method=="GET": return jsonify(MCP.load_tools_cfg())
+    data=request.json or {};cfg=MCP.load_tools_cfg()
+    for k in ("engine","ollama_host","model","system_prompt"):
+        if k in data: cfg[k]=str(data[k])
+    for k in ("max_iters",):
+        if k in data:
+            try: cfg[k]=int(data[k])
+            except: pass
+    for k in ("temperature",):
+        if k in data:
+            try: cfg[k]=float(data[k])
+            except: pass
+    for k in ("think_enabled",):
+        if k in data: cfg[k]=bool(data[k])
+    MCP.save_tools_cfg(cfg);return jsonify({"status":"ok","config":cfg})
+
+@app.route("/api/tools/models",methods=["GET"])
+def api_tools_models():
+    """List Ollama models available to the tool tab (separate from chat config)."""
+    cfg=MCP.load_tools_cfg();host=cfg.get("ollama_host","http://localhost:11434")
+    try:
+        r=R.get(f"{host}/api/tags",timeout=5);r.raise_for_status()
+        ms=r.json().get("models",[])
+        return jsonify({"models":[{"name":m.get("name",""),
+                                   "size":m.get("size",0),
+                                   "family":m.get("details",{}).get("family","")} for m in ms],
+                        "current":cfg.get("model","")})
+    except Exception as e: return jsonify({"models":[],"current":cfg.get("model",""),"error":str(e)})
+
+@app.route("/api/tools/sessions",methods=["GET"])
+def api_tools_sessions():
+    return jsonify({"sessions":MCP.list_sessions(),"active_id":MCP.get_active_id()})
+
+@app.route("/api/tools/active",methods=["GET"])
+def api_tools_active_get():
+    d=MCP.ensure_active();return jsonify({"session":d,"version":MCP.version()})
+
+@app.route("/api/tools/active/new",methods=["POST"])
+def api_tools_active_new():
+    title=(request.json or {}).get("title") or None
+    d=MCP.create_session(title);return jsonify({"session":d,"version":MCP.version()})
+
+@app.route("/api/tools/active/switch",methods=["POST"])
+def api_tools_active_switch():
+    sid=(request.json or {}).get("id","")
+    if not MCP._read_session(sid): return jsonify({"error":"Not found"}),404
+    MCP.set_active_id(sid);return jsonify({"status":"ok","version":MCP.version()})
+
+@app.route("/api/tools/active/delete",methods=["POST"])
+def api_tools_active_delete():
+    sid=(request.json or {}).get("id","")
+    MCP.delete_session(sid);return jsonify({"status":"ok","version":MCP.version()})
+
+@app.route("/api/tools/pending",methods=["GET"])
+def api_tools_pending():
+    return jsonify({"pending":MCP.peek_pending_summaries()})
+
+@app.route("/api/tools/run",methods=["POST"])
+def api_tools_run():
+    """Streaming SSE: execute a tool-model task against MCP tools.
+       Keeps Tools tab context completely isolated from the main chat."""
+    data=request.json or {};task=(data.get("task") or "").strip()
+    if not task: return jsonify({"error":"Empty task"}),400
+    # Optional: caller can mark this task as coming from the chat model.
+    origin=data.get("origin","user")
+    sess=MCP.ensure_active()
+    sid=sess["id"]
+    cfg=MCP.load_tools_cfg()
+    try: tools=MCP.list_all_tools()
+    except Exception as e: tools=[]; print(f"[tools] list failed: {e}")
+
+    q=[]
+    def emit(ev): q.append(f"data: {json.dumps(ev)}\n\n")
+
+    def worker():
+        try:
+            MCP.run_tool_task(sid,task,cfg,tools,_chat_model_writing,emit)
+        except Exception as e:
+            emit({"kind":"error","text":str(e)})
+        finally: emit({"kind":"done","version":MCP.version()})
+
+    # Run the orchestration synchronously but stream incrementally by
+    # polling the queue produced by emit() callbacks.
+    done=threading.Event()
+    def runner():
+        try: worker()
+        finally: done.set()
+    threading.Thread(target=runner,daemon=True).start()
+
+    def gen():
+        yield f"data: {json.dumps({'kind':'start','session_id':sid,'origin':origin,'tools':len(tools)})}\n\n"
+        idx=0
+        while not (done.is_set() and idx>=len(q)):
+            while idx<len(q):
+                yield q[idx]; idx+=1
+            time.sleep(0.05)
+        while idx<len(q):
+            yield q[idx]; idx+=1
+    return Response(stream_with_context(gen()),mimetype="text/event-stream")
+
+@app.route("/api/tools/dispatch_from_chat",methods=["POST"])
+def api_tools_dispatch():
+    """Queue a task authored by the main chat model for the Tools tab to run.
+       The frontend Tools tab is responsible for picking it up (so the user
+       still sees everything happen in the Tools tab log)."""
+    task=(request.json or {}).get("task","").strip()
+    if not task: return jsonify({"error":"Empty"}),400
+    sess=MCP.ensure_active()
+    MCP.append_log(sess["id"],{"kind":"queued","text":task,"source":"chat"})
+    return jsonify({"status":"ok","session_id":sess["id"]})
+
 if __name__=="__main__":
     port=7865;lan=get_lan_ip()
     # Ensure an active chat exists on startup
     _ensure_active()
+    MCP.ensure_active()
     print(f"\n\033[36m  AutoType v1.02 🧿\033[0m\n  Local:   http://localhost:{port}\n  Network: http://{lan}:{port}\n")
     threading.Thread(target=lambda:get_ltm(),daemon=True).start()
     threading.Thread(target=lambda:(time.sleep(1.5),webbrowser.open(f"http://localhost:{port}")),daemon=True).start()
