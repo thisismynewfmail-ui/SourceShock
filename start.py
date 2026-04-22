@@ -17,6 +17,7 @@ BASE=os.path.dirname(os.path.abspath(__file__))
 app=Flask(__name__)
 DATA=os.path.join(BASE,"data");PRESETS=os.path.join(DATA,"presets");CHATS=os.path.join(DATA,"chats")
 ACTIVE_ID_P=os.path.join(DATA,"active_id.txt");CUSTOM_P=os.path.join(DATA,"customization.json")
+PARAM_OVR_P=os.path.join(DATA,"param_overrides.json")
 IMAGES=os.path.join(BASE,"images")
 for d in [PRESETS,CHATS,IMAGES,os.path.join(DATA,"memory")]: os.makedirs(d,exist_ok=True)
 
@@ -49,7 +50,7 @@ PD={
  "penalize_newline":{"type":"bool","default":True,"cat":"penalties","desc":"Penalize NL","eng":"o"},
  "num_predict":{"type":"int","default":-1,"min":-2,"max":32768,"step":1,"cat":"generation","desc":"Max tokens (Ollama)","eng":"o"},
  "max_tokens":{"type":"int","default":2048,"min":1,"max":32768,"step":1,"cat":"generation","desc":"Max tokens (llama.cpp)","eng":"l"},
- "num_ctx":{"type":"int","default":2048,"min":256,"max":131072,"step":256,"cat":"generation","desc":"Context window","eng":"o"},
+ "num_ctx":{"type":"int","default":2048,"min":256,"max":131072,"step":256,"cat":"generation","desc":"Context window","eng":"ol"},
  "num_keep":{"type":"int","default":-1,"min":-1,"max":65536,"step":1,"cat":"generation","desc":"Keep","eng":"o"},
  "seed":{"type":"int","default":0,"min":0,"max":999999999,"step":1,"cat":"generation","desc":"Seed","eng":"ol"},
  "stop":{"type":"list","default":[],"cat":"generation","desc":"Stop seqs","eng":"ol"},
@@ -67,6 +68,25 @@ CFG={"ollama_host":"http://localhost:11434","llamacpp_host":"http://localhost:80
  "think_enabled":True,"think_visible":False,"show_stats":False,"is_thinking_model":False,
  "chat_template":""}
 PO,MDFL={},{}
+
+def _load_po():
+    """Load persisted parameter overrides from disk."""
+    global PO
+    if not os.path.exists(PARAM_OVR_P): return
+    try:
+        with open(PARAM_OVR_P) as f: d=json.load(f)
+        if isinstance(d,dict):
+            for k,v in d.items():
+                if k in PD: PO[k]=v
+    except: pass
+
+def _save_po():
+    """Persist current parameter overrides to disk."""
+    try:
+        with open(PARAM_OVR_P,"w") as f: json.dump(PO,f,indent=2)
+    except: pass
+
+_load_po()
 
 THEMES={
  "ss2":{"--g":"#6688cc","--gd":"#3a4a7a","--gk":"#1e2844","--bg":"#06060e","--bgp":"#0a0e1a","--bgi":"#080912","--bd":"#1a2040","--r":"#cc2233","--c":"#5577bb","--o":"#7799dd","--p":"#8888cc","--mem":"#5599dd","--ri":"#cc2233","--accent":"#4466aa","label":"System Shock 2"},
@@ -225,10 +245,13 @@ def build_ollama_opts():
     return o
 
 def build_llamacpp_opts():
-    """Build llama.cpp /v1/chat/completions params — only params tagged with 'l' in eng."""
+    """Build llama.cpp /v1/chat/completions params — only send params explicitly overridden by user (PO) or model defaults (MDFL).
+    Skip hardcoded PD defaults so the OpenAI-compatible backend uses its own server/model-level sampling config."""
     o={}
     for k,p in PD.items():
         if 'l' not in p.get("eng","o"): continue
+        if k not in PO and k not in MDFL: continue
+        if k=="num_ctx": continue  # llama.cpp context is set at server startup; used only for app-side trimming
         v=eff(k)
         if k=="stop":
             if v: o["stop"]=v
@@ -303,6 +326,7 @@ def apply_cfg_state(st):
     for k,v in st.get("toggles",{}).items():
         if k in CFG: CFG[k]=v
     PO=dict(st.get("param_overrides",{}))
+    _save_po()
 
 def trim_messages_to_context(msgs, num_ctx, sys_tokens=0):
     """
@@ -410,15 +434,16 @@ def api_config():
                     if isinstance(v,str): v=[_unescape(x.strip()) for x in v.split(",") if x.strip()]
             except: continue
             PO[k]=v
+        _save_po()
     return jsonify({"status":"ok"})
 
 @app.route("/api/reset_param",methods=["POST"])
 def api_rp():
-    k=request.json.get("key","");PO.pop(k,None);v=eff(k)
+    k=request.json.get("key","");PO.pop(k,None);_save_po();v=eff(k)
     if k=="stop" and isinstance(v,list): v=[_reescape(t) for t in v]
     return jsonify({"status":"ok","effective":v})
 @app.route("/api/reset_all_params",methods=["POST"])
-def api_rap(): PO.clear();return jsonify({"status":"ok"})
+def api_rap(): PO.clear();_save_po();return jsonify({"status":"ok"})
 
 # Presets
 @app.route("/api/presets",methods=["GET"])
